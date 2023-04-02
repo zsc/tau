@@ -8,7 +8,7 @@ import pippy.fx
 import pippy.utils
 from pippy import run_pippy
 from pippy.hf import PiPPyHFTracer
-from transformers import AutoTokenizer, OPTForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
 pippy.fx.Tracer.proxy_buffer_attributes = True
@@ -45,7 +45,7 @@ def generate_input(args):
     inp = torch.empty(bs, seq_length, dtype=torch.long, device=args.device).random_(model_config.vocab_size)
     model_input_dict = {
         "input_ids": inp,
-        "attention_mask": None,
+        #"attention_mask": None,
     }
 
     return model_input_dict
@@ -53,7 +53,7 @@ def generate_input(args):
 
 def run_all(pp_ranks, args):
     model = args.model
-    model.to(args.device)
+    #model.to(args.device)
     model.eval()
     model.config.use_cache = False  # don't output `past_key_values`
     num_ranks = len(pp_ranks)
@@ -94,13 +94,14 @@ def run_all(pp_ranks, args):
 
     # OPT generate
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-    prompt = "Hey, are you consciours? Can you talk to me?"
+    prompt = ["Hey, are you conscious? Can you talk to me?"] * 10 
     input = tokenizer(prompt, return_tensors="pt")
 
     input_ids = input["input_ids"].to(args.device)
-    outputs = model.generate(input_ids, max_length=30)
-    response = tokenizer.batch_decode(outputs, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-    print(response)
+    outputs = model.generate(input_ids, max_length=30, do_sample=True, temperature=0.5)
+    for response in tokenizer.batch_decode(outputs, skip_special_tokens=True, clean_up_tokenization_spaces=False):
+        print(response)
+        print('-' * 20)
 
 
 if __name__ == "__main__":
@@ -109,7 +110,7 @@ if __name__ == "__main__":
     parser.add_argument('--rank', type=int, default=int(os.getenv("RANK", -1)))
     parser.add_argument('--master_addr', type=str, default=os.getenv('MASTER_ADDR', 'localhost'))
     parser.add_argument('--master_port', type=str, default=os.getenv('MASTER_PORT', '29500'))
-    parser.add_argument('--model_name', type=str, default='facebook/opt-350m')
+    parser.add_argument('--model_name', type=str, default='bigscience/bloom-3b')
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--chunks', type=int, default=1)
     parser.add_argument('--seq_length', type=int, default=16)
@@ -122,10 +123,7 @@ if __name__ == "__main__":
 
     # Main process loads model
     print(f"Loading model {args.model_name}")
-    if 'opt' in args.model_name:
-        model = OPTForCausalLM.from_pretrained(args.model_name, use_cache=False)
-    else:
-        raise ValueError(f"Unsupported model: {args.model_name}")
+    model = AutoModelForCausalLM.from_pretrained(args.model_name, use_cache=False)
     args.model = model
 
     args.gspmd = 1
